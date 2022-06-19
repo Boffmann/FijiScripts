@@ -142,6 +142,7 @@ def get_xmls_to_analyze(path):
             gui = GenericDialog("ERROR")
             gui.addMessage("Selected file is not a xml file")
             gui.showDialog()
+            return []
 
 def create_table_for(tracks, feature):
 	trackTable = TrackTable(tracks, feature, analyse_spot)
@@ -158,7 +159,11 @@ def get_tracks_for_files(xml_files):
         if not reader.isReadingOk():
             continue
         model = reader.getModel()
+        if model == None:
+            continue
         trackModel = model.getTrackModel()
+        if trackModel == None:
+            continue
         track_ids = trackModel.trackIDs(True)
         for id in track_ids:
             track = Track(id, trackModel)
@@ -190,6 +195,8 @@ if chooser.wasOKed():
 
     path = chooser.getNextString()
     xml_files = get_xmls_to_analyze(path)
+    if all([elem == None for elem in xml_files]):
+        sys.exit()
     tracks_for_files = get_tracks_for_files(xml_files)
     available_features = find_mutual_features(tracks_for_files)
     available_features.append(g_custom_algorithm)
