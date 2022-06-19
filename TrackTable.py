@@ -3,7 +3,8 @@ from fiji.plugin.trackmate.io import TmXmlReader
 from fiji.plugin.trackmate import Logger
 from fiji.plugin.trackmate import Settings
 from fiji.plugin.trackmate import SelectionModel
-from ij.io import DirectoryChooser
+from fiji.util.gui import GenericDialogPlus
+from ij.gui import GenericDialog
 from ij.measure import ResultsTable
 from java.io import File
 import sys
@@ -74,15 +75,6 @@ class TrackTable:
         [self.__add_row(row) for row in rows[1:]]
     	return self.result_table
 
-# Open interactive DirectoryChooser window
-dc = DirectoryChooser("Choose a directory")
-
-# Create logger to output things
-logger = Logger.IJ_LOGGER
-
-# read choosen directory path
-directory = dc.getDirectory()
-
 def isXMLFile(file):
     """
     Checks whether a specific file is indeed a xml file
@@ -98,32 +90,62 @@ def analyse_spot(spot):
 	# Must return a single value as string
 	return str(spot.getFeature("MEAN_INTENSITY01"))
 
-def analyze_tracks(trackModel, fileName, output_file):
+def get_xmls_to_analyze(path):
+    path_file = File(path)
+    if path_file.isDirectory():
+        # Creates a list of all xml files in the choosen path
+        xmls = [f for f in listdir(path) if isXMLFile(join(path, f))]
+        # Expands all xml files to absolute path so that they can be opened
+        return [join(path, f) for f in xmls]
+    else:
+        if isXMLFile(path):
+            return [path]
+        else:
+            gui = GenericDialog("ERROR")
+            gui.addMessage("Selected file is not a xml file")
+            gui.showDialog()
+
+def create_table_for(trackModel):
 	trackTable = TrackTable(analyse_spot)
 	track_ids = trackModel.trackIDs(True)
 	for id in track_ids:
 		track = Track(id, trackModel.trackSpots(id))
 		trackTable.addTrack(track)
-	result_table = trackTable.to_results_table()
-	result_table.show("Tracks of file " + fileName)
-	result_table.save(output_file)
+	return trackTable.to_results_table()
 
-# Creates a list of all xml files in the choosen directory
-xmls = [f for f in listdir(directory) if isXMLFile(join(directory, f))]
+# Create a GUI window and add required fields
+gui = GenericDialogPlus("TrackTable to CSV")
+gui.addDirectoryOrFileField("Select Directory of XML File", "Select Directory", 16)
+gui.addCheckbox("View Table", True)
+gui.addCheckbox("Auto Save", False)
+gui.addStringField("Add extension to files when saving", "", 16)
 
-# Expands all xml files to absolute path so that they can be opened
-xml_files = [join(directory, f) for f in xmls]
+# Create logger to output things
+logger = Logger.IJ_LOGGER
 
-# extract spots in each xml file in choosen directory and invokes 'analyse_spots' for each file
-for xml_file in xml_files:
-    logger.log("Currently analysed file: " + xml_file)
-    file = File(xml_file)
-    reader = TmXmlReader(file)
-    if not reader.isReadingOk():
-        continue
-    filename, extension = splitext(file.getAbsolutePath())
-    output_file = filename + ".csv"
-    model = reader.getModel()
-    trackModel = model.getTrackModel()
-    analyze_tracks(trackModel, xml_file, output_file)
+gui.showDialog()
+
+if gui.wasOKed():
+    checkboxes = gui.getCheckboxes()
+    path = gui.getNextString()
+    output_extension = gui.getNextString()
+    should_show = checkboxes[0].state
+    should_save = checkboxes[1].state
+    xml_files = get_xmls_to_analyze(path)
+    for xml_file in xml_files:
+        if xml_file is None:
+            continue
+        file = File(xml_file)
+        reader = TmXmlReader(file)
+        if not reader.isReadingOk():
+            continue
+        model = reader.getModel()
+        trackModel = model.getTrackModel()
+        table = create_table_for(trackModel)
+        filename, extension = splitext(file.getAbsolutePath())
+        if should_show:
+            table.show("Tracks of file " + filename)
+        if should_save:
+            output_file = filename + output_extension + ".csv"
+            table.save(output_file)
     
