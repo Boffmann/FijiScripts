@@ -28,8 +28,11 @@ class Track:
 
 class TrackTable:
 
-    def __init__(self):
+    def __init__(self, spot_analyzer):
+        self.spot_analyzer = spot_analyzer
         self.tracks = []
+        self.column_names = []
+    	self.result_table = ResultsTable()
 
     def addTrack(self, track):
         self.tracks.append(track)
@@ -37,14 +40,10 @@ class TrackTable:
     def __tracks_to_rows(self):
         res = []
         column = 1
-        tmp_row = []
-        for track in self.tracks:
-            tmp_row.append(track.get_id())
+        tmp_row = [track.get_id() for track in self.tracks]
         res.append(tmp_row)
         while True:
-            tmp_row = []
-            for track in self.tracks:
-                tmp_row.append(track.get_spot(column))
+            tmp_row = [track.get_spot(column) for track in self.tracks]
             # Stop if no row left to add i.e. no track has spots left
             if all([elem == None for elem in tmp_row]):
                 break
@@ -52,26 +51,28 @@ class TrackTable:
             column = column + 1
         return res
 
-    def to_results_table(self, spot_analyzer):
-    	rows = self.__tracks_to_rows()
-    	column_names = []
-    	result_table = ResultsTable()
-    	for track_id in rows[0]:
+    def __add_columns(self, rows):
+        for track_id in rows[0]:
     		column_name = "Track ID: " + str(track_id)
-    		column_names.append(column_name)
-    		result_table.setColumn(column_name, [])
-    	for row_index in range(1, len(rows)):
-    		row = rows[row_index]
-    		result_table.incrementCounter()
-    		for column_index in range(0, len(row)):
-    			spot = row[column_index]
-    			column_name = column_names[column_index]
-    			if spot is None:
-    				result_table.addValue(column_name, "")
-    			else:
-    				feature = spot_analyzer(spot)
-    				result_table.addValue(column_name, str(feature))
-    	return result_table
+    		self.column_names.append(column_name)
+    		self.result_table.setColumn(column_name, [])
+
+    def __add_row(self, row):
+        self.result_table.incrementCounter()
+        for column_index in range(0, len(row)):
+            spot = row[column_index]
+            column_name = self.column_names[column_index]
+            if spot is None:
+                self.result_table.addValue(column_name, "")
+            else:
+                feature = self.spot_analyzer(spot)
+                self.result_table.addValue(column_name, str(feature))
+
+    def to_results_table(self):
+    	rows = self.__tracks_to_rows()
+        self.__add_columns(rows)
+        [self.__add_row(row) for row in rows[1:]]
+    	return self.result_table
 
 # Open interactive DirectoryChooser window
 dc = DirectoryChooser("Choose a directory")
@@ -98,12 +99,12 @@ def analyse_spot(spot):
 	return str(spot.getFeature("MEAN_INTENSITY01"))
 
 def analyze_tracks(trackModel, fileName, output_file):
-	trackTable = TrackTable()
+	trackTable = TrackTable(analyse_spot)
 	track_ids = trackModel.trackIDs(True)
 	for id in track_ids:
 		track = Track(id, trackModel.trackSpots(id))
 		trackTable.addTrack(track)
-	result_table = trackTable.to_results_table(analyse_spot)
+	result_table = trackTable.to_results_table()
 	result_table.show("Tracks of file " + fileName)
 	result_table.save(output_file)
 
