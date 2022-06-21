@@ -11,8 +11,6 @@ import sys
 from os import listdir
 from os.path import isfile, join, splitext
 
-g_custom_algorithm = "Custom Algorithm"
-
 ###################################
 # Write custom spot analysis here #
 ###################################
@@ -35,6 +33,8 @@ def analyse_spot(spot):
 
 ###################################
 
+g_custom_algorithm = "Custom Algorithm"
+
 class Track:
     
     def __init__(self, id, trackModel):
@@ -53,18 +53,63 @@ class Track:
             return None
         return self.spots[id]
     
-    def get_features(self):
+    def get_common_features(self):
         features = []
         for spot in self.spots:
             features.append(spot.getFeatures().keys())
         return flat_map_get_common(features)
 
+class TracksFile:
+
+    def __init__(self, file_name):
+        self.fileName = file_name
+        self.tracks = []
+        self.__fill_tracks()
+
+    def __fill_tracks(self):
+        file = File(self.fileName)
+        reader = TmXmlReader(file)
+        if not reader.isReadingOk():
+            return
+        model = reader.getModel()
+        if model == None:
+            return
+        trackModel = model.getTrackModel()
+        if trackModel == None:
+            return
+        track_ids = trackModel.trackIDs(True)
+        for id in track_ids:
+            track = Track(id, trackModel)
+            self.tracks.append(track)
+
+    def get_common_features(self):
+        features = []
+        for track in self.tracks:
+            features.append(track.get_common_features())
+        return flat_map_get_common(features)
+    
+    def get_tracks(self):
+        return self.tracks
+
+    def get_fileName(self):
+        return self.fileName
+
+class SpotAnalyzer:
+
+    def __init__(self, feature):
+        self.feature = feature
+
+    def analyze(self, spot):
+        if self.feature == g_custom_algorithm:
+            return analyse_spot(spot)
+        else:
+            return str(spot.getFeature(self.feature))
+
 class TrackTable:
 
-    def __init__(self, tracks, feature, spot_analyzer):
+    def __init__(self, tracks, spot_analyzer):
         self.spot_analyzer = spot_analyzer
         self.tracks = []
-        self.feature = feature
         self.column_names = []
     	self.result_table = ResultsTable()
         for track in tracks:
@@ -101,10 +146,7 @@ class TrackTable:
             if spot is None:
                 self.result_table.addValue(column_name, "")
             else:
-                if self.feature == g_custom_algorithm:
-                    feature = self.spot_analyzer(spot)
-                else:
-                    feature = str(spot.getFeature(self.feature))
+                feature = self.spot_analyzer.analyze(spot)
                 self.result_table.addValue(column_name, str(feature))
 
     def to_results_table(self):
@@ -144,40 +186,20 @@ def get_xmls_to_analyze(path):
             gui.showDialog()
             return []
 
-def create_table_for(tracks, feature):
-	trackTable = TrackTable(tracks, feature, analyse_spot)
+def create_table_for(tracks_for_file, feature):
+	trackTable = TrackTable(tracks_for_file.get_tracks(), SpotAnalyzer(feature))
 	return trackTable.to_results_table()
 
-def get_tracks_for_files(xml_files):
-    result = {}
+def create_tracks_files(xml_files):
+    result = []
     for xml_file in xml_files:
         if xml_file is None:
             continue
-        result[xml_file] = []
-        file = File(xml_file)
-        reader = TmXmlReader(file)
-        if not reader.isReadingOk():
-            continue
-        model = reader.getModel()
-        if model == None:
-            continue
-        trackModel = model.getTrackModel()
-        if trackModel == None:
-            continue
-        track_ids = trackModel.trackIDs(True)
-        for id in track_ids:
-            track = Track(id, trackModel)
-            result[xml_file].append(track)
+        result.append(TracksFile(xml_file))
     return result
 
 def find_mutual_features(tracks_for_files):
-    features_across_files = []
-    for xml_file in tracks_for_files:
-        features_in_file = []
-        for track in tracks_for_files.get(xml_file):
-            features_in_file.append(track.get_features())
-        common_features_in_file = flat_map_get_common(features_in_file)
-        features_across_files.append(common_features_in_file)
+    features_across_files = [track.get_common_features() for track in tracks_for_files]
     commons_set = flat_map_get_common(features_across_files)
     commons_list = []
     for elem in commons_set:
@@ -197,7 +219,7 @@ if chooser.wasOKed():
     xml_files = get_xmls_to_analyze(path)
     if all([elem == None for elem in xml_files]):
         sys.exit()
-    tracks_for_files = get_tracks_for_files(xml_files)
+    tracks_for_files = create_tracks_files(xml_files)
     available_features = find_mutual_features(tracks_for_files)
     available_features.append(g_custom_algorithm)
 
@@ -216,10 +238,9 @@ if chooser.wasOKed():
         feature = str(gui.getNextChoice())
         should_show = checkboxes[0].state
         should_save = checkboxes[1].state
-        for xml_file in tracks_for_files:
-            tracks = tracks_for_files[xml_file]
-            table = create_table_for(tracks, feature)
-            file = File(xml_file)
+        for tracks_for_file in tracks_for_files:
+            table = create_table_for(tracks_for_file, feature)
+            file = File(tracks_for_file.get_fileName())
             filename, extension = splitext(file.getAbsolutePath())
             if should_show:
                 table.show("Tracks of file " + filename)
